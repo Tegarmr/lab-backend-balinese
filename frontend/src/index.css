@@ -1,0 +1,172 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+@import "tailwindcss";
+
+/* ── Custom Theme Layer ──────────────────────────────────── */
+@theme {
+  --color-primary-50: #fdf4f3;
+  --color-primary-100: #fce4e1;
+  --color-primary-200: #facec9;
+  --color-primary-300: #f5aaa2;
+  --color-primary-400: #ec7c6e;
+  --color-primary-500: #e05543;
+  --color-primary-600: #cd3926;
+  --color-primary-700: #ac2d1c;
+  --color-primary-800: #8e281b;
+  --color-primary-900: #76271d;
+
+  --color-surface-50: #f8f6f4;
+  --color-surface-100: #eeebe6;
+  --color-surface-200: #ddd5cc;
+  --color-surface-300: #c8bbac;
+  --color-surface-400: #b19c89;
+  --color-surface-500: #a18672;
+  --color-surface-600: #947666;
+  --color-surface-700: #7c6256;
+  --color-surface-800: #655149;
+  --color-surface-900: #53443e;
+
+  --color-dark-bg: #0f0e0d;
+  --color-dark-card: #1a1918;
+  --color-dark-card-hover: #222120;
+  --color-dark-border: #2d2b29;
+  --color-dark-text: #e8e4df;
+  --color-dark-text-muted: #9c9690;
+
+  --color-accent-gold: #d4a44e;
+  --color-accent-amber: #f0b429;
+  --color-accent-teal: #38b2ac;
+
+  --font-sans: 'Inter', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+/* ── Base Styles ─────────────────────────────────────── */
+body {
+  font-family: var(--font-sans);
+  background-color: var(--color-dark-bg);
+  color: var(--color-dark-text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ── Scrollbar ───────────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-dark-bg);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-dark-border);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-surface-700);
+}
+
+/* ── Custom Animations ───────────────────────────────── */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes slideDown {
+  from { opacity: 0; max-height: 0; }
+  to { opacity: 1; max-height: 2000px; }
+}
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 8px rgba(208, 164, 78, 0.2); }
+  50% { box-shadow: 0 0 20px rgba(208, 164, 78, 0.4); }
+}
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.4s ease-out forwards;
+}
+.animate-slide-down {
+  animation: slideDown 0.35s ease-out forwards;
+}
+.animate-pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+/* ── Shimmer Loading ─────────────────────────────────── */
+.shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--color-dark-card) 25%,
+    var(--color-dark-card-hover) 50%,
+    var(--color-dark-card) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+/* ── Glass Card ──────────────────────────────────────── */
+.glass-card {
+  background: rgba(26, 25, 24, 0.8);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--color-dark-border);
+  border-radius: 12px;
+}
+
+/* ── Upload Dropzone ─────────────────────────────────── */
+.dropzone {
+  border: 2px dashed var(--color-dark-border);
+  border-radius: 12px;
+  transition: all 0.3s ease;
+}
+.dropzone:hover,
+.dropzone.active {
+  border-color: var(--color-accent-gold);
+  background: rgba(212, 164, 78, 0.05);
+}
+
+/* ── Collapsible Step ────────────────────────────────── */
+.step-header {
+  transition: all 0.2s ease;
+}
+.step-header:hover {
+  background: var(--color-dark-card-hover);
+}
+.step-content {
+  overflow: hidden;
+  transition: max-height 0.35s ease-out, opacity 0.25s ease;
+}
+.step-content.collapsed {
+  max-height: 0;
+  opacity: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+.step-content.expanded {
+  max-height: 5000px;
+  opacity: 1;
+}
+
+/* ── Detection Badge ─────────────────────────────────── */
+.detection-badge {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(56, 178, 172, 0.15);
+  color: var(--color-accent-teal);
+  border: 1px solid rgba(56, 178, 172, 0.3);
+}
+
+/* ── Transliteration Output ──────────────────────────── */
+.transliteration-output {
+  font-family: var(--font-mono);
+  font-size: 1.1rem;
+  line-height: 2;
+  letter-spacing: 0.02em;
+  color: var(--color-accent-gold);
+  background: linear-gradient(135deg, rgba(212, 164, 78, 0.05), rgba(26, 25, 24, 0.9));
+  border: 1px solid rgba(212, 164, 78, 0.2);
+  border-radius: 12px;
+  padding: 1.5rem;
+}
