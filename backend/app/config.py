@@ -14,7 +14,7 @@ UPLOAD_DIR.mkdir(exist_ok=True)
 
 # ── Model Weights ──────────────────────────────────────────
 SEAMFORMER_WEIGHTS = Path(
-    os.getenv("SEAMFORMER_WEIGHTS", str(WEIGHTS_DIR / "Balinese_Seamformer.pt"))
+    os.getenv("SEAMFORMER_WEIGHTS", str(WEIGHTS_DIR / "BEST-MODEL-BL_ft_scr-8.pt"))
 )
 YOLO_WEIGHTS = Path(
     os.getenv("YOLO_WEIGHTS", str(WEIGHTS_DIR / "deeplontar_v8l_best.pt"))

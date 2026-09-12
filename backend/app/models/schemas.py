@@ -25,6 +25,28 @@ class PositionItem(BaseModel):
     y: float
 
 
+class SyllableGlyph(BaseModel):
+    """One glyph that contributes to a syllable, with its crop image."""
+    class_id: int
+    class_name: str
+    det_index: int
+    x: float
+    y: float
+    crop_image: str = ""  # base64 crop (looked up from the line's detections)
+
+
+class SyllableUnit(BaseModel):
+    """
+    One rendered syllable/token and the glyphs that combine to form it.
+
+    Lets the UI show *which detected characters influence each other* and the
+    rule that produced the reading (for verifying the transliteration rules).
+    """
+    text: str            # rendered syllable, e.g. "ko", "kra", ","
+    rule: str            # human-readable explanation of the rules applied
+    glyphs: list[SyllableGlyph]
+
+
 class LineResult(BaseModel):
     """Results for a single segmented text line."""
     line_index: int
@@ -33,6 +55,7 @@ class LineResult(BaseModel):
     detections: list[DetectionItem]
     positions: list[PositionItem]
     grouped_text: str  # e.g. "(321)439289(213)" format
+    syllables: list[SyllableUnit]  # per-syllable glyph grouping + rules
     transliteration: str
 
 

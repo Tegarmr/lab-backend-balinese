@@ -57,6 +57,7 @@ class CharPosition:
     x: float
     y: float
     confidence: float = 0.0
+    det_index: int = -1  # index into the line's detection list (for crop lookup)
 
 
 @dataclass
@@ -188,11 +189,17 @@ class _Syllable:
     coda: str = ""            # final consonant(s): ng / r / h
     from_taling: bool = False  # vowel came from taling (needed for tedong->o)
     raw: str | None = None     # punctuation/raw passthrough (overrides render)
+    # Provenance (for the "which glyphs form which syllable" breakdown):
+    sources: list = field(default_factory=list)  # list[CharPosition]
+    rules: list = field(default_factory=list)     # list[str] rule explanations
 
     def render(self) -> str:
         if self.raw is not None:
             return self.raw
         return f"{self.consonants}{self.vowel}{self.coda}"
+
+    def rule_text(self) -> str:
+        return "; ".join(self.rules)
 
 
 class TransliterationEngine:
@@ -218,11 +225,11 @@ class TransliterationEngine:
 
         groups: list[CharGroup] = []
         current_group = CharGroup(x=detections[0]["x_center"])
-        current_group.characters.append(self._to_pos(detections[0]))
+        current_group.characters.append(self._to_pos(detections[0], 0))
 
-        for det in detections[1:]:
+        for idx, det in enumerate(detections[1:], start=1):
             if abs(det["x_center"] - current_group.x) <= self.x_threshold:
-                current_group.characters.append(self._to_pos(det))
+                current_group.characters.append(self._to_pos(det, idx))
                 current_group.x = sum(
                     c.x for c in current_group.characters
                 ) / len(current_group.characters)
@@ -230,20 +237,21 @@ class TransliterationEngine:
                 current_group.sort_by_y()
                 groups.append(current_group)
                 current_group = CharGroup(x=det["x_center"])
-                current_group.characters.append(self._to_pos(det))
+                current_group.characters.append(self._to_pos(det, idx))
 
         current_group.sort_by_y()
         groups.append(current_group)
         return groups
 
     @staticmethod
-    def _to_pos(det: dict) -> CharPosition:
+    def _to_pos(det: dict, det_index: int = -1) -> CharPosition:
         return CharPosition(
             class_id=det["class_id"],
             class_name=det["class_name"],
             x=det["x_center"],
             y=det["y_center"],
             confidence=det.get("confidence", 0.0),
+            det_index=det_index,
         )
 
     def format_grouped_text(self, groups: list[CharGroup]) -> str:
@@ -272,20 +280,76 @@ class TransliterationEngine:
         a pending pre-base vowel for the next base; ``tedong`` is applied
         backwards to the previous syllable (taling+base+tedong => "o").
         """
+        syllables = self._line_to_syllables(detections)
+        return "".join(s.render() for s in syllables)
+
+    def transliterate_line_detailed(self, detections: list[dict]) -> list[dict]:
+        """
+        Same as :meth:`transliterate_line` but returns a structured breakdown
+        of every rendered syllable so the caller can see *which detected
+        glyphs combine into which syllable* and *why* (the rule applied).
+
+        Returns a list of dicts, one per rendered unit::
+
+            {
+                "text": "ko",                     # rendered syllable / token
+                "rule": "Taling + tedong -> ...", # human-readable explanation
+                "glyphs": [                       # contributing detections
+                    {"class_id": 38, "class_name": "taling",
+                     "det_index": 0, "x": 12.0, "y": 40.0},
+                    ...
+                ],
+            }
+        """
+        syllables = self._line_to_syllables(detections)
+        units: list[dict] = []
+        for syl in syllables:
+            text = syl.render()
+            # Order source glyphs left-to-right, then top-to-bottom for clarity.
+            glyphs = sorted(syl.sources, key=lambda c: (round(c.x, 1), c.y))
+            units.append(
+                {
+                    "text": text,
+                    "rule": syl.rule_text(),
+                    "glyphs": [
+                        {
+                            "class_id": g.class_id,
+                            "class_name": g.class_name,
+                            "det_index": g.det_index,
+                            "x": g.x,
+                            "y": g.y,
+                        }
+                        for g in glyphs
+                    ],
+                }
+            )
+        return units
+
+    def _line_to_syllables(self, detections: list[dict]) -> list["_Syllable"]:
+        """
+        Core left-to-right scan shared by the string and detailed APIs.
+
+        Produces a list of :class:`_Syllable`, each carrying its source glyphs
+        (``sources``) and rule explanations (``rules``) so the transliteration
+        can be audited glyph-by-glyph.
+        """
         groups = self.group_vertical(detections)
         if not groups:
-            return ""
+            return []
 
         syllables: list[_Syllable] = []
-        pending_taling = False
+        pending_taling: list[CharPosition] = []
 
         for group in groups:
             cls = self._classify(group)
+            members = list(group.characters)
 
             # Punctuation / separator (titik / carik)
             if cls["titik"]:
-                syllables.append(_Syllable(raw=", "))
-                pending_taling = False
+                syl = _Syllable(raw=", ", sources=members,
+                                rules=["Tanda baca (carik/titik) → pemisah kata (R7)."])
+                syllables.append(syl)
+                pending_taling = []
                 continue
 
             has_consonant = cls["base"] is not None
@@ -293,31 +357,31 @@ class TransliterationEngine:
 
             # ── Pre-base taling on its own -> mark for the next base ──
             if cls["taling"] and not has_unit and not cls["gantungan"]:
-                pending_taling = True
+                pending_taling = members
                 continue
 
             # ── Post-base tedong on its own -> modify previous syllable ──
             if cls["tedong"] and not has_unit and not cls["gantungan"]:
-                self._apply_tedong(syllables)
+                self._apply_tedong(syllables, members)
                 continue
 
             # ── Standalone vowel or orphan finals (no base consonant) ──
             if not has_consonant:
                 orphan = self._build_orphan(cls)
                 if orphan is not None:
+                    orphan.sources = members
                     syllables.append(orphan)
-                pending_taling = False
+                pending_taling = []
                 continue
 
             # ── Normal base consonant (with its stacked modifiers) ──
-            syl = self._build_syllable(cls, pending_taling)
-            pending_taling = False
+            syl = self._build_syllable(cls, bool(pending_taling))
+            # Provenance: pending taling glyphs (look-behind) + this group.
+            syl.sources = pending_taling + members
+            pending_taling = []
             syllables.append(syl)
 
-            # tedong stacked in the *same* group (rare) already handled inside
-            # _build_syllable via cls["tedong"].
-
-        return "".join(s.render() for s in syllables)
+        return syllables
 
     # ──────────────────────────────────────────────────────
     # Group classification
@@ -379,6 +443,7 @@ class TransliterationEngine:
         """
         syl = _Syllable()
         vowel_override: str | None = None
+        rules: list[str] = []
 
         # ── Build the consonant cluster ──────────────────
         base = cls["base"]
@@ -386,9 +451,15 @@ class TransliterationEngine:
             # la lenga is a vocalic letter: l + ě
             syl.consonants = "l"
             vowel_override = "e"
+            rules.append("Aksara wayah 'la lenga' bersifat vokalik → 'le' (lě) (R6).")
         else:
             cons = _consonant_of(base.class_id) if base is not None else None
             syl.consonants = cons or ""
+            if base is not None:
+                rules.append(
+                    f"Aksara dasar '{base.class_name}' → konsonan '{cons}' "
+                    f"dengan vokal inheren /a/ (R1)."
+                )
 
         for g in cls["gantungan"]:
             gid = g.class_id
@@ -396,10 +467,21 @@ class TransliterationEngine:
                 # vocalic: adds "r" + ě
                 syl.consonants += "r"
                 vowel_override = "e"
+                rules.append(
+                    f"'{g.class_name}' bersifat vokalik → menambah 're' (rě) (R6)."
+                )
             elif gid in GANTUNGAN_WAYAH_CONSONANT:
                 syl.consonants += GANTUNGAN_WAYAH_CONSONANT[gid]
+                rules.append(
+                    f"'{g.class_name}' (gantungan) menggabung konsonan "
+                    f"'{GANTUNGAN_WAYAH_CONSONANT[gid]}' & mematikan /a/ sebelumnya (R3)."
+                )
             elif gid in GANTUNGAN_CONSONANT:
                 syl.consonants += GANTUNGAN_CONSONANT[gid]
+                rules.append(
+                    f"'{g.class_name}' (gantungan) menggabung konsonan "
+                    f"'{GANTUNGAN_CONSONANT[gid]}' & mematikan /a/ sebelumnya (R3)."
+                )
 
         if not syl.consonants:
             # Nothing usable; emit empty syllable.
@@ -409,13 +491,52 @@ class TransliterationEngine:
         syl.vowel, syl.from_taling = self._determine_vowel(
             cls, pending_taling, vowel_override
         )
+        rules.extend(self._vowel_rule_notes(cls, pending_taling, vowel_override))
 
         # ── Coda (pangangge tengenan) ────────────────────
         # Deterministic order: ng, r, h.
         for fid in sorted(cls["finals"]):
             syl.coda += TENGENAN_SOUND[fid]
+            name = {CECEK_ID: "cecek", SURANG_ID: "surang", BISAH_ID: "bisah"}[fid]
+            rules.append(
+                f"Pangangge tengenan '{name}' → koda '{TENGENAN_SOUND[fid]}' (R4)."
+            )
 
+        syl.rules = rules
         return syl
+
+    @staticmethod
+    def _vowel_rule_notes(
+        cls: dict, pending_taling: bool, vowel_override: str | None
+    ) -> list[str]:
+        """Human-readable notes explaining the nucleus-vowel decision."""
+        notes: list[str] = []
+        taling = cls["taling"] or pending_taling
+        tedong = cls["tedong"]
+
+        if cls["adeg"] and vowel_override is None:
+            notes.append("Adeg-adeg mematikan vokal (konsonan mati) (R5).")
+            return notes
+        if vowel_override is not None:
+            return notes  # already explained by the vocalic glyph note
+        if taling and tedong:
+            notes.append("Taling + tedong → vokal 'o' (R2).")
+            return notes
+        if taling:
+            src = "taling (pra-base, look-behind)" if pending_taling else "taling"
+            notes.append(f"{src.capitalize()} → vokal 'e' (R2).")
+            return notes
+        if tedong:
+            notes.append("Tedong → vokal panjang 'a' (ā) (R2).")
+            return notes
+        for vid in cls["vowel_signs"]:
+            if vid == ULU_ID:
+                notes.append("Pangangge suara 'ulu' → vokal 'i' (R2).")
+            elif vid == SUKU_ID:
+                notes.append("Pangangge suara 'suku' → vokal 'u' (R2).")
+            elif vid == PEPET_ID:
+                notes.append("Pangangge suara 'pepet' → vokal 'e' (ě) (R2).")
+        return notes
 
     @staticmethod
     def _determine_vowel(
@@ -467,21 +588,33 @@ class TransliterationEngine:
         if cls["standalone"] is not None:
             syl = _Syllable(consonants="", vowel="")
             syl.vowel = SUARA_SOUND[cls["standalone"].class_id]
+            syl.rules.append(
+                f"Aksara suara '{cls['standalone'].class_name}' "
+                f"→ vokal mandiri '{syl.vowel}'."
+            )
             if cls["tedong"]:
                 # long vowel; keep as-is for a/i/u
                 pass
             for fid in sorted(cls["finals"]):
                 syl.coda += TENGENAN_SOUND[fid]
+                name = {CECEK_ID: "cecek", SURANG_ID: "surang", BISAH_ID: "bisah"}[fid]
+                syl.rules.append(
+                    f"Pangangge tengenan '{name}' → koda '{TENGENAN_SOUND[fid]}' (R4)."
+                )
             return syl
 
         # Stray finals only.
         coda = "".join(TENGENAN_SOUND[fid] for fid in sorted(cls["finals"]))
         if coda:
-            return _Syllable(consonants="", vowel="", coda=coda)
+            syl = _Syllable(consonants="", vowel="", coda=coda)
+            syl.rules.append(f"Pangangge tengenan lepas → koda '{coda}' (R4).")
+            return syl
         return None
 
     @staticmethod
-    def _apply_tedong(syllables: list[_Syllable]) -> None:
+    def _apply_tedong(
+        syllables: list[_Syllable], members: list["CharPosition"] | None = None
+    ) -> None:
         """
         Apply a standalone (post-base) tedong to the previous syllable.
 
@@ -493,10 +626,18 @@ class TransliterationEngine:
         for syl in reversed(syllables):
             if syl.raw is not None:
                 continue
+            if members:
+                syl.sources = list(syl.sources) + list(members)
             if syl.from_taling:
                 syl.vowel = "o"
+                syl.rules.append(
+                    "Tedong (look-ahead) mengubah vokal 'e' (dari taling) → 'o' (R2)."
+                )
             elif syl.vowel in ("", "a"):
                 syl.vowel = "a"
+                syl.rules.append("Tedong (look-ahead) → vokal panjang 'a' (ā) (R2).")
+            else:
+                syl.rules.append("Tedong (look-ahead) → vokal panjang (R2).")
             # else: ulu/suku -> long vowel, keep the same romanisation.
             return
 
@@ -505,15 +646,18 @@ class TransliterationEngine:
     # ──────────────────────────────────────────────────────
     def transliterate_all_lines(
         self, all_detections: list[list[dict]]
-    ) -> tuple[list[str], list[str], list[list[dict]]]:
+    ) -> tuple[list[str], list[str], list[list[dict]], list[list[dict]]]:
         """
         Transliterate all lines.
 
-        Returns (transliterations, grouped_texts, positions_per_line).
+        Returns (transliterations, grouped_texts, positions_per_line,
+        syllables_per_line), where ``syllables_per_line[i]`` is the structured
+        syllable breakdown produced by :meth:`transliterate_line_detailed`.
         """
         transliterations = []
         grouped_texts = []
         positions_per_line = []
+        syllables_per_line = []
 
         for line_dets in all_detections:
             groups = self.group_vertical(line_dets)
@@ -530,5 +674,11 @@ class TransliterationEngine:
             ])
 
             transliterations.append(self.transliterate_line(line_dets))
+            syllables_per_line.append(self.transliterate_line_detailed(line_dets))
 
-        return transliterations, grouped_texts, positions_per_line
+        return (
+            transliterations,
+            grouped_texts,
+            positions_per_line,
+            syllables_per_line,
+        )
