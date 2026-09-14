@@ -25,6 +25,8 @@ from app.models.schemas import (
     DetectionItem,
     LineResult,
     PositionItem,
+    SyllableGlyph,
+    SyllableUnit,
     TransliterationResponse,
 )
 from app.services.detection import YOLODetectionService
@@ -137,9 +139,12 @@ async def transliterate(file: UploadFile = File(...)):
         # ── Stage 4: Transliteration ─────────────────────
         logger.info("Starting transliteration...")
         trans_engine = TransliterationEngine()
-        transliterations, grouped_texts, positions_per_line = (
-            trans_engine.transliterate_all_lines(all_detections)
-        )
+        (
+            transliterations,
+            grouped_texts,
+            positions_per_line,
+            syllables_per_line,
+        ) = trans_engine.transliterate_all_lines(all_detections)
 
         # ── Build Response ────────────────────────────────
         line_results = []
@@ -175,6 +180,32 @@ async def transliterate(file: UploadFile = File(...)):
                 PositionItem(**p) for p in positions_per_line[i]
             ]
 
+            # Syllable breakdown: which glyphs combine into which syllable.
+            # Attach each glyph's crop image (looked up by detection index).
+            syllable_items = []
+            for unit in syllables_per_line[i]:
+                glyph_items = []
+                for g in unit["glyphs"]:
+                    di = g["det_index"]
+                    crop_b64 = (
+                        detection_items[di].crop_image
+                        if 0 <= di < len(detection_items)
+                        else ""
+                    )
+                    glyph_items.append(SyllableGlyph(
+                        class_id=g["class_id"],
+                        class_name=g["class_name"],
+                        det_index=di,
+                        x=g["x"],
+                        y=g["y"],
+                        crop_image=crop_b64,
+                    ))
+                syllable_items.append(SyllableUnit(
+                    text=unit["text"],
+                    rule=unit["rule"],
+                    glyphs=glyph_items,
+                ))
+
             line_results.append(LineResult(
                 line_index=i,
                 line_image=segmented_lines_b64[i],
@@ -182,6 +213,7 @@ async def transliterate(file: UploadFile = File(...)):
                 detections=detection_items,
                 positions=position_items,
                 grouped_text=grouped_texts[i],
+                syllables=syllable_items,
                 transliteration=transliterations[i],
             ))
 

@@ -14,10 +14,10 @@ UPLOAD_DIR.mkdir(exist_ok=True)
 
 # ── Model Weights ──────────────────────────────────────────
 SEAMFORMER_WEIGHTS = Path(
-    os.getenv("SEAMFORMER_WEIGHTS", str(WEIGHTS_DIR / "Balinese_Seamformer.pt"))
+    os.getenv("SEAMFORMER_WEIGHTS", str(WEIGHTS_DIR / "BEST-MODEL-BL_ft_scr-8.pt"))
 )
 YOLO_WEIGHTS = Path(
-    os.getenv("YOLO_WEIGHTS", str(WEIGHTS_DIR / "deeplontar_v8l_best.pt"))
+    os.getenv("YOLO_WEIGHTS", str(WEIGHTS_DIR / "deeplontar_v8l_reliable_best.pt"))
 )
 
 # ── Device ─────────────────────────────────────────────────
@@ -45,9 +45,16 @@ SEAMFORMER_SETTINGS = {
 }
 
 # ── YOLO Settings ─────────────────────────────────────────
+# Match the fine-tuning notebook's prediction settings. A whole lontar line
+# shrunk to 640 loses small strokes; 0.5 also discards many valid glyphs.
 YOLO_CONF_THRESHOLD = float(os.getenv("YOLO_CONF", "0.25"))
 YOLO_IOU_THRESHOLD = float(os.getenv("YOLO_IOU", "0.45"))
-YOLO_IMG_SIZE = int(os.getenv("YOLO_IMG_SIZE", "640"))
+YOLO_IMG_SIZE = int(os.getenv("YOLO_IMG_SIZE", "1280"))
+YOLO_MAX_DET = int(os.getenv("YOLO_MAX_DET", "800"))
+# Preserve overlapping base letters and combining marks of different classes.
+YOLO_AGNOSTIC_NMS = os.getenv("YOLO_AGNOSTIC_NMS", "false").lower() == "true"
+# Duplicate suppression follows the same class policy as model NMS.
+YOLO_DEDUP_IOU = float(os.getenv("YOLO_DEDUP_IOU", "0.45"))
 
 # ── CORS ──────────────────────────────────────────────────
 CORS_ORIGINS = os.getenv(

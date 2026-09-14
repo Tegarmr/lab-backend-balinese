@@ -6,6 +6,7 @@ import SegmentedLinesView from './SegmentedLinesView';
 import YoloDetectionView from './YoloDetectionView';
 import PositionsView from './PositionsView';
 import GroupedPositionsView from './GroupedPositionsView';
+import SyllableGroupsView from './SyllableGroupsView';
 import TransliterationView from './TransliterationView';
 
 /**
@@ -113,7 +114,18 @@ export default function ResultsPanel({ data, onReset }) {
           <GroupedPositionsView lines={data.lines} />
         </CollapsibleStep>
 
-        {/* 8. Transliteration — always visible */}
+        {/* 8. Syllable grouping — collapsible (verifikasi aturan) */}
+        <CollapsibleStep
+          title="Pembentukan Suku Kata & Aturan"
+          icon="🔤"
+          stepNumber={8}
+          badge="verifikasi rule"
+          defaultOpen
+        >
+          <SyllableGroupsView lines={data.lines} />
+        </CollapsibleStep>
+
+        {/* 9. Transliteration — always visible */}
         <TransliterationView
           lines={data.lines}
           fullTransliteration={data.full_transliteration}

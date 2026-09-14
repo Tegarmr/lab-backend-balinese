@@ -11,7 +11,14 @@ import cv2
 import numpy as np
 from ultralytics import YOLO
 
-from app.config import YOLO_CONF_THRESHOLD, YOLO_IMG_SIZE, YOLO_IOU_THRESHOLD
+from app.config import (
+    YOLO_AGNOSTIC_NMS,
+    YOLO_CONF_THRESHOLD,
+    YOLO_DEDUP_IOU,
+    YOLO_IMG_SIZE,
+    YOLO_IOU_THRESHOLD,
+    YOLO_MAX_DET,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -122,6 +129,8 @@ class YOLODetectionService:
             imgsz=YOLO_IMG_SIZE,
             conf=conf,
             iou=iou,
+            agnostic_nms=YOLO_AGNOSTIC_NMS,
+            max_det=YOLO_MAX_DET,
             device=self.device,
             verbose=False,
         )
@@ -132,6 +141,12 @@ class YOLODetectionService:
             for box in boxes:
                 class_id = int(box.cls[0])
                 confidence = float(box.conf[0])
+
+                # Drop low-confidence detections (defensive: predict() already
+                # filters by `conf`, this guards against callers passing a
+                # lower threshold or float rounding at the boundary).
+                if confidence < conf:
+                    continue
 
                 # Get box coordinates (xyxy format)
                 x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
@@ -147,6 +162,10 @@ class YOLODetectionService:
                         "class_id": class_id,
                         "class_name": class_name,
                         "confidence": round(confidence, 4),
+                        "x1": round(float(x1), 2),
+                        "y1": round(float(y1), 2),
+                        "x2": round(float(x2), 2),
+                        "y2": round(float(y2), 2),
                         "x_center": round(float(x_center), 2),
                         "y_center": round(float(y_center), 2),
                         "width": round(float(width), 2),
@@ -154,9 +173,58 @@ class YOLODetectionService:
                     }
                 )
 
+        detections = self._dedup_overlaps(
+            detections, YOLO_DEDUP_IOU, agnostic=YOLO_AGNOSTIC_NMS
+        )
+
         # Sort by x_center (left-to-right reading order)
         detections.sort(key=lambda d: d["x_center"])
         return detections
+
+    @staticmethod
+    def _iou(a: dict, b: dict) -> float:
+        """Intersection-over-union of two detection boxes (xyxy)."""
+        ax1, ay1, ax2, ay2 = a["x1"], a["y1"], a["x2"], a["y2"]
+        bx1, by1, bx2, by2 = b["x1"], b["y1"], b["x2"], b["y2"]
+
+        inter_x1 = max(ax1, bx1)
+        inter_y1 = max(ay1, by1)
+        inter_x2 = min(ax2, bx2)
+        inter_y2 = min(ay2, by2)
+
+        inter_w = max(0.0, inter_x2 - inter_x1)
+        inter_h = max(0.0, inter_y2 - inter_y1)
+        inter = inter_w * inter_h
+        if inter <= 0:
+            return 0.0
+
+        area_a = max(0.0, ax2 - ax1) * max(0.0, ay2 - ay1)
+        area_b = max(0.0, bx2 - bx1) * max(0.0, by2 - by1)
+        union = area_a + area_b - inter
+        return inter / union if union > 0 else 0.0
+
+    @classmethod
+    def _dedup_overlaps(
+        cls, detections: list[dict], iou_thr: float, agnostic: bool = False
+    ) -> list[dict]:
+        """
+        Greedy NMS, preserving different classes unless explicitly agnostic.
+
+        Sorts by confidence (highest first) and drops any lower-confidence box
+        that overlaps an already-kept box of the same class by more than
+        ``iou_thr``. Combining marks can overlap a base letter legitimately.
+        """
+        ordered = sorted(detections, key=lambda d: d["confidence"], reverse=True)
+        kept: list[dict] = []
+        for det in ordered:
+            if any(
+                (agnostic or det["class_id"] == k["class_id"])
+                and cls._iou(det, k) > iou_thr
+                for k in kept
+            ):
+                continue
+            kept.append(det)
+        return kept
 
     def detect_all_lines(self, line_images: list[np.ndarray]) -> list[list[dict]]:
         """
