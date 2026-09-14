@@ -13,7 +13,7 @@ export default function YoloDetectionView({ lines }) {
   return (
     <div id="yolo-detection-view">
       <p className="text-dark-text-muted text-xs mb-3">
-        Hasil deteksi karakter aksara Bali menggunakan YOLOv8s.
+        Hasil deteksi karakter aksara Bali menggunakan YOLO.
         Setiap bounding box menunjukkan karakter yang terdeteksi beserta confidence score.
       </p>
 
