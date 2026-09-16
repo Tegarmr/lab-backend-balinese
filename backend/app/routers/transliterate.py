@@ -123,6 +123,7 @@ async def transliterate(file: UploadFile = File(...)):
                 segmentation_image=segmentation_image_b64,
                 segmented_lines=[],
                 lines=[],
+                full_balinese_unicode="",
                 full_transliteration="(Tidak ada baris teks terdeteksi)",
                 processing_time=round(elapsed, 2),
                 total_lines=0,
@@ -145,6 +146,10 @@ async def transliterate(file: UploadFile = File(...)):
             positions_per_line,
             syllables_per_line,
         ) = trans_engine.transliterate_all_lines(all_detections)
+        unicode_lines = [
+            trans_engine.to_unicode_line(line_dets)
+            for line_dets in all_detections
+        ]
 
         # ── Build Response ────────────────────────────────
         line_results = []
@@ -202,6 +207,7 @@ async def transliterate(file: UploadFile = File(...)):
                     ))
                 syllable_items.append(SyllableUnit(
                     text=unit["text"],
+                    unicode_text=unit["unicode_text"],
                     rule=unit["rule"],
                     glyphs=glyph_items,
                 ))
@@ -214,12 +220,16 @@ async def transliterate(file: UploadFile = File(...)):
                 positions=position_items,
                 grouped_text=grouped_texts[i],
                 syllables=syllable_items,
+                balinese_unicode=unicode_lines[i],
                 transliteration=transliterations[i],
             ))
 
         # Full transliteration (join all lines)
         full_trans = " / ".join(
             t for t in transliterations if t.strip()
+        )
+        full_unicode = "\n".join(
+            text for text in unicode_lines if text.strip()
         )
 
         elapsed = time.time() - start_time
@@ -235,6 +245,7 @@ async def transliterate(file: UploadFile = File(...)):
             segmentation_image=segmentation_image_b64,
             segmented_lines=segmented_lines_b64,
             lines=line_results,
+            full_balinese_unicode=full_unicode,
             full_transliteration=full_trans,
             processing_time=round(elapsed, 2),
             total_lines=len(line_results),

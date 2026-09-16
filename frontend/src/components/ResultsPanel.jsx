@@ -128,6 +128,7 @@ export default function ResultsPanel({ data, onReset }) {
         {/* 9. Transliteration — always visible */}
         <TransliterationView
           lines={data.lines}
+          fullBalineseUnicode={data.full_balinese_unicode}
           fullTransliteration={data.full_transliteration}
         />
       </div>

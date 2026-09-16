@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+Balinese&display=swap');
 @import "tailwindcss";
 
 /* ── Custom Theme Layer ──────────────────────────────────── */
@@ -169,4 +169,10 @@ body {
   border: 1px solid rgba(212, 164, 78, 0.2);
   border-radius: 12px;
   padding: 1.5rem;
+}
+
+.balinese-unicode {
+  font-family: 'Noto Sans Balinese', 'Nirmala UI', sans-serif;
+  font-size: 1.75rem;
+  letter-spacing: 0;
 }
