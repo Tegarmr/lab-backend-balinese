@@ -43,6 +43,7 @@ class SyllableUnit(BaseModel):
     rule that produced the reading (for verifying the transliteration rules).
     """
     text: str            # rendered syllable, e.g. "ko", "kra", ","
+    unicode_text: str    # logical-order Balinese Unicode for this unit
     rule: str            # human-readable explanation of the rules applied
     glyphs: list[SyllableGlyph]
 
@@ -56,6 +57,7 @@ class LineResult(BaseModel):
     positions: list[PositionItem]
     grouped_text: str  # e.g. "(321)439289(213)" format
     syllables: list[SyllableUnit]  # per-syllable glyph grouping + rules
+    balinese_unicode: str
     transliteration: str
 
 
@@ -67,6 +69,7 @@ class TransliterationResponse(BaseModel):
     segmentation_image: str  # base64 (original with polygon overlays)
     segmented_lines: list[str]  # base64 list of cropped lines
     lines: list[LineResult]
+    full_balinese_unicode: str
     full_transliteration: str
     processing_time: float  # seconds
     total_lines: int

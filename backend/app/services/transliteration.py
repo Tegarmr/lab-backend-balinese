@@ -42,6 +42,7 @@ therefore:
 """
 
 import logging
+import unicodedata
 from dataclasses import dataclass, field
 
 from app.config import X_GROUP_THRESHOLD
@@ -168,6 +169,80 @@ TENGENAN_SOUND = {
 SUARA_SOUND = {45: "a", 46: "i", 47: "u"}
 
 
+# Unicode Balinese block (U+1B00-U+1B7F). Gantungan are encoded in logical
+# order as ADEG-ADEG + the corresponding consonant; the font shapes the
+# consonant into its subjoined form.
+BASE_UNICODE = {
+    0: "\u1b33",   # ha
+    1: "\u1b26",   # na
+    2: "\u1b18",   # ca
+    3: "\u1b2d",   # ra
+    4: "\u1b13",   # ka
+    5: "\u1b24",   # da
+    6: "\u1b22",   # ta
+    7: "\u1b32",   # sa
+    8: "\u1b2f",   # wa
+    9: "\u1b2e",   # la
+    10: "\u1b2b",  # ma
+    11: "\u1b15",  # ga
+    12: "\u1b29",  # ba
+    13: "\u1b17",  # nga
+    14: "\u1b27",  # pa
+    15: "\u1b1a",  # ja
+    16: "\u1b2c",  # ya
+    17: "\u1b1c",  # nya
+    45: "\u1b05",  # A kara
+    46: "\u1b07",  # I kara
+    47: "\u1b09",  # U kara
+    48: "\u1b30",  # sa saga
+    49: "\u1b21",  # na rambat
+    50: "\u1b25",  # da madu
+    51: "\u1b0d",  # la lenga
+}
+
+GANTUNGAN_UNICODE = {
+    18: "\u1b33",  # ha
+    19: "\u1b26",  # na
+    20: "\u1b18",  # ca
+    21: "\u1b2d",  # ra
+    22: "\u1b24",  # da
+    23: "\u1b22",  # ta
+    24: "\u1b32",  # sa
+    25: "\u1b2f",  # wa
+    26: "\u1b2e",  # la
+    27: "\u1b2b",  # ma
+    28: "\u1b15",  # ga
+    29: "\u1b29",  # ba
+    30: "\u1b17",  # nga
+    31: "\u1b27",  # pa
+    32: "\u1b1a",  # ja
+    33: "\u1b2c",  # ya
+    34: "\u1b1c",  # nya
+    52: "\u1b25",  # da madu
+    54: "\u1b23",  # ta tawa
+}
+
+VOWEL_SIGN_UNICODE = {
+    ULU_ID: "\u1b36",
+    SUKU_ID: "\u1b38",
+    PEPET_ID: "\u1b42",
+}
+
+FINAL_SIGN_UNICODE = {
+    CECEK_ID: "\u1b02",
+    SURANG_ID: "\u1b03",
+    BISAH_ID: "\u1b04",
+}
+
+BALINESE_ADEG_ADEG = "\u1b44"
+BALINESE_TEDONG = "\u1b35"
+BALINESE_TALING = "\u1b3e"
+BALINESE_RA_REPA_SIGN = "\u1b3a"
+BALINESE_CARIK_SIKI = "\u1b5e"
+BALINESE_ULU_SARI = "\u1b37"
+BALINESE_SUKU_ILUT = "\u1b39"
+
+
 def _consonant_of(class_id: int) -> str | None:
     """Consonant letter for a base/wayah consonant id (None if not one)."""
     if class_id in WIANJANA_CONSONANT:
@@ -203,6 +278,7 @@ class _Syllable:
     coda: str = ""            # final consonant(s): ng / r / h
     from_taling: bool = False  # vowel came from taling (needed for tedong->o)
     raw: str | None = None     # punctuation/raw passthrough (overrides render)
+    unicode_text: str = ""     # logical-order Unicode Balinese representation
     # Provenance (for the "which glyphs form which syllable" breakdown):
     sources: list = field(default_factory=list)  # list[CharPosition]
     rules: list = field(default_factory=list)     # list[str] rule explanations
@@ -214,6 +290,9 @@ class _Syllable:
 
     def rule_text(self) -> str:
         return "; ".join(self.rules)
+
+    def render_unicode(self) -> str:
+        return self.unicode_text
 
 
 class TransliterationEngine:
@@ -395,6 +474,11 @@ class TransliterationEngine:
         syllables = self._line_to_syllables(detections)
         return "".join(s.render() for s in syllables)
 
+    def to_unicode_line(self, detections: list[dict]) -> str:
+        """Convert one detected line to logical-order Balinese Unicode."""
+        syllables = self._line_to_syllables(detections)
+        return "".join(s.render_unicode() for s in syllables)
+
     def transliterate_line_detailed(self, detections: list[dict]) -> list[dict]:
         """
         Same as :meth:`transliterate_line` but returns a structured breakdown
@@ -422,6 +506,7 @@ class TransliterationEngine:
             units.append(
                 {
                     "text": text,
+                    "unicode_text": syl.render_unicode(),
                     "rule": syl.rule_text(),
                     "glyphs": [
                         {
@@ -461,6 +546,7 @@ class TransliterationEngine:
                 syllables.append(
                     _Syllable(
                         raw=", ",
+                        unicode_text=BALINESE_CARIK_SIKI,
                         sources=members,
                         rules=["Tanda baca (carik/titik) → pemisah kata (R7)."],
                     )
@@ -470,6 +556,7 @@ class TransliterationEngine:
             # Normal base consonant with its stacked / pre / post marks.
             if cls["base"] is not None:
                 syl = self._build_syllable(cls)
+                syl.unicode_text = self._render_unicode_group(cls)
                 syl.sources = members
                 syllables.append(syl)
                 continue
@@ -477,10 +564,58 @@ class TransliterationEngine:
             # Standalone vowel or leftover marks (kept visible, never dropped).
             orphan = self._build_orphan(cls)
             if orphan is not None:
+                orphan.unicode_text = self._render_unicode_group(cls)
                 orphan.sources = members
                 syllables.append(orphan)
 
         return syllables
+
+    @staticmethod
+    def _render_unicode_group(cls: dict) -> str:
+        """Render a geometry-associated group in Unicode logical order."""
+        chars: list[str] = []
+        anchor = cls["base"] or cls["standalone"]
+        if anchor is not None:
+            chars.append(BASE_UNICODE.get(anchor.class_id, ""))
+
+        # A regular gantungan is encoded as virama + consonant. Ra repa is
+        # already a dependent vocalic sign and therefore has no virama.
+        for gantungan in cls["gantungan"]:
+            if gantungan.class_id == GANT_RA_REPA_ID:
+                chars.append(BALINESE_RA_REPA_SIGN)
+                continue
+            consonant = GANTUNGAN_UNICODE.get(gantungan.class_id)
+            if consonant:
+                chars.extend((BALINESE_ADEG_ADEG, consonant))
+
+        if cls["adeg"]:
+            chars.append(BALINESE_ADEG_ADEG)
+
+        vowel_signs = cls["vowel_signs"]
+        tedong_consumed = False
+        for vowel_id in vowel_signs:
+            # The dataset represents these long vowels as two detected
+            # components, while Unicode assigns each a single code point.
+            if cls["tedong"] and vowel_id == ULU_ID and not cls["taling"]:
+                chars.append(BALINESE_ULU_SARI)
+                tedong_consumed = True
+            elif cls["tedong"] and vowel_id == SUKU_ID and not cls["taling"]:
+                chars.append(BALINESE_SUKU_ILUT)
+                tedong_consumed = True
+            else:
+                chars.append(VOWEL_SIGN_UNICODE[vowel_id])
+
+        if cls["taling"]:
+            # Taling is drawn left of the base but encoded after it.
+            chars.append(BALINESE_TALING)
+        if cls["tedong"] and not tedong_consumed:
+            chars.append(BALINESE_TEDONG)
+
+        for final_id in sorted(cls["finals"]):
+            chars.append(FINAL_SIGN_UNICODE[final_id])
+
+        # NFC composes combinations such as TALING + TEDONG into U+1B40.
+        return unicodedata.normalize("NFC", "".join(chars))
 
     # ──────────────────────────────────────────────────────
     # Group classification
